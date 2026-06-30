@@ -23,17 +23,12 @@ const SPECIALIST_SYSTEMS = {
   legal: 'You are the legal-minded specialist on the team, NOT an actual lawyer, and you say so plainly. Flag general considerations (entity type, licensing, common pitfalls) in plain talk, then explicitly tell them to consult a real lawyer for anything specific. Max 120 words.'
 };
 
-async function runManager(userMessage, file) {
-    var content = [];
-    if (file && file.data) {
-      content.push({
-        type: 'document',
-        source: { type: 'base64', media_type: file.type || 'application/pdf', data: file.data },
-        title: file.name || 'Attached file'
-      });
-    }
-    content.push({ type: 'text', text: userMessage });
-    // rest of your existing runManager code, but use content array instead of userMessage string
+async function runManager(userMessage) {
+  const planRaw = await callClaude({
+    system: MANAGER_SYSTEM,
+    messages: [{ role: 'user', content: userMessage }],
+    maxTokens: 400
+  });
 
   let plan;
   try {

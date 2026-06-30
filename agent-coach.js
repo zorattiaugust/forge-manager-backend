@@ -30,16 +30,68 @@ Examples of payload shape:
 
 Never invent data the user didn't mention. Keep replies short, 1-3 sentences max unless they're asking for real feedback on their week.`;
 
+function extractJsonObject(text) {
+  if (!text) throw new Error('Empty model response');
+  let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error('No JSON object found in model response');
+    }
+    return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+  }
+}
+
+const VALID_CATEGORIES = new Set([
+  'workout', 'exercise', 'run', 'meal', 'supplement', 'water', 'reading', 'budget'
+]);
+
+function normalizeCoachResult(parsed) {
+  const reply =
+    typeof parsed.reply === 'string' && parsed.reply.trim()
+      ? parsed.reply.trim()
+      : 'I understood that, but the log format came back messy. Try saying it a little more directly.';
+
+  const proposed_logs = Array.isArray(parsed.proposed_logs)
+    ? parsed.proposed_logs
+        .filter(log =>
+          log &&
+          VALID_CATEGORIES.has(log.category) &&
+          log.payload &&
+          typeof log.payload === 'object' &&
+          !Array.isArray(log.payload)
+        )
+        .map(log => ({ category: log.category, payload: log.payload }))
+    : [];
+
+  return { reply, proposed_logs };
+}
+
 async function runCoach(userMessage, recentForgeSummary) {
   const messages = [
-    { role: 'user', content: `Recent logged data for context:\n${recentForgeSummary || 'none yet'}\n\nUser says: ${userMessage}` }
+    {
+      role: 'user',
+      content:
+        `Recent logged data for context:\n${recentForgeSummary || 'none yet'}\n\n` +
+        `User says: ${userMessage}\n\n` +
+        `Return only valid JSON. No markdown. No explanation outside the JSON object.`
+    }
   ];
+
   const raw = await callClaude({ system: COACH_SYSTEM, messages, maxTokens: 500 });
+
   try {
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleaned);
+    const parsed = extractJsonObject(raw);
+    return normalizeCoachResult(parsed);
   } catch (e) {
-    return { reply: raw, proposed_logs: [] };
+    console.error('Coach JSON parse failed:', { error: e.message, raw });
+    return {
+      reply: 'I heard you, but I could not turn that into a clean log. Say it like: "I ate chicken and rice" or "bench 135 for 3 sets of 10."',
+      proposed_logs: []
+    };
   }
 }
 

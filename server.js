@@ -19,7 +19,7 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // --- Coach: chat + propose logs ---
 app.post('/api/coach/message', async (req, res) => {
   try {
-    app.use(express.json({ limit: '50mb' }));
+    const { message } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     const { data: recentLogs } = await supabase
@@ -116,7 +116,7 @@ app.post('/api/forge/log', async (req, res) => {
   }
 });
 
-// Delete a log (removes cloud-origin items from Goals)
+// Delete a log
 app.delete('/api/forge/log/:id', async (req, res) => {
   try {
     const { error } = await supabase
@@ -149,7 +149,8 @@ app.post('/api/manager/message', async (req, res) => {
 
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'user', content: message });
 
-    const result = await runManager(message);
+    const file = fileData ? { data: fileData, type: fileType || 'application/pdf', name: fileName || 'attachment' } : null;
+    const result = await runManager(message, file);
 
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'manager', content: result.plan });
     for (const r of result.results) {

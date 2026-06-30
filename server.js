@@ -37,18 +37,22 @@ app.post('/api/coach/message', async (req, res) => {
 
     await supabase.from('coach_messages').insert({ role: 'assistant', content: result.reply });
 
-    const pendingIds = [];
+    const pending = [];
     for (const log of result.proposed_logs || []) {
       const today = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from('pending_logs')
         .insert({ log_date: today, category: log.category, payload: log.payload, status: 'pending' })
-        .select()
+        .select('id, log_date, category, payload, status')
         .single();
-      if (!error) pendingIds.push(data.id);
+      if (error) {
+        console.error('Could not insert pending log:', error.message, log);
+      } else {
+        pending.push(data);
+      }
     }
 
-    res.json({ reply: result.reply, pending: pendingIds });
+    res.json({ reply: result.reply, pending });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -92,6 +96,38 @@ app.get('/api/coach/pending', async (req, res) => {
 app.get('/api/forge/logs', async (req, res) => {
   const { data } = await supabase.from('forge_logs').select('*').order('log_date', { ascending: false }).limit(100);
   res.json(data || []);
+});
+
+// Direct log from Goals tab (no pending step)
+app.post('/api/forge/log', async (req, res) => {
+  try {
+    const { category, payload } = req.body;
+    if (!category || !payload) return res.status(400).json({ error: 'category and payload required' });
+    const today = new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from('forge_logs')
+      .insert({ log_date: today, category, payload })
+      .select('id')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: data.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete a log (removes cloud-origin items from Goals)
+app.delete('/api/forge/log/:id', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('forge_logs')
+      .delete()
+      .eq('id', Number(req.params.id));
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- Manager: business idea conversations ---

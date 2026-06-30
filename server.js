@@ -19,7 +19,7 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // --- Coach: chat + propose logs ---
 app.post('/api/coach/message', async (req, res) => {
   try {
-    const { message } = req.body;
+    app.use(express.json({ limit: '50mb' }));
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     const { data: recentLogs } = await supabase

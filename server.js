@@ -181,5 +181,34 @@ app.get('/api/manager/threads/:id/messages', async (req, res) => {
   res.json(data || []);
 });
 
+// --- Full state sync ---
+app.get('/api/state/:userId', async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('user_state')
+      .select('data')
+      .eq('user_id', req.params.userId)
+      .single();
+    res.json(data ? data.data : null);
+  } catch (e) {
+    res.json(null);
+  }
+});
+
+app.post('/api/state', async (req, res) => {
+  try {
+    const { userId, data } = req.body;
+    if (!userId || !data) return res.status(400).json({ error: 'userId and data required' });
+    await supabase.from('user_state').upsert({
+      user_id: userId,
+      data,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server running on port ' + PORT));

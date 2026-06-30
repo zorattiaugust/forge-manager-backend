@@ -68,18 +68,23 @@ function extractJsonObject(text) {
 
     return { reply, proposed_logs };
   }
-
-  async function runCoach(userMessage, recentForgeSummary) {
+ async function runCoach(userMessage, recentForgeSummary) {
     const messages = [
       {
         role: 'user',
-        content:
-          `Recent logged data for context:\n${recentForgeSummary || 'none yet'}\n\n` +
-          `User says: ${userMessage}\n\n` +
-          `Return only valid JSON. No markdown. No explanation outside the JSON object.`
+        content: 'Recent data:\n' + (recentForgeSummary || 'none') + '\n\nUser says: ' + userMessage + '\n\nReturn
+  only valid JSON. No markdown.'
       }
     ];
-
+    const raw = await callClaude({ system: COACH_SYSTEM, messages, maxTokens: 500 });
+    try {
+      const parsed = extractJsonObject(raw);
+      return normalizeCoachResult(parsed);
+    } catch (e) {
+      console.error('Coach parse failed:', e.message);
+      return { reply: 'Could not parse that. Try again.', proposed_logs: [] };
+    }
+  }
     const raw = await callClaude({ system: COACH_SYSTEM, messages, maxTokens: 500 });
 
     try {

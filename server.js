@@ -133,7 +133,7 @@ app.delete('/api/forge/log/:id', async (req, res) => {
 // --- Manager: business idea conversations ---
 app.post('/api/manager/message', async (req, res) => {
   try {
-    const { message, threadId } = req.body;
+    const { message, threadId, fileData, fileType, fileName } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     let tid = threadId;

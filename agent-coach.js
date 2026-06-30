@@ -88,8 +88,8 @@ function extractJsonObject(text) {
     } catch (e) {
       console.error('Coach JSON parse failed:', { error: e.message, raw });
       return {
-        reply: 'I heard you, but I could not turn that into a clean log. Say it like: "I ate chicken and rice" or 
-  "bench 135 for 3 sets of 10."',
+        reply: 'I heard you, but I could not turn that into a clean log. Try: "I ate chicken and rice" or "bench 135
+  for 3 sets of 10".',
         proposed_logs: []
       };
     }

@@ -102,11 +102,12 @@ app.post('/api/manager/message', async (req, res) => {
 
     let tid = threadId;
     if (!tid) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('manager_threads')
         .insert({ title: message.slice(0, 60) })
         .select()
         .single();
+      if (error) return res.status(500).json({ error: 'Could not create thread: ' + error.message });
       tid = data.id;
     }
 

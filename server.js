@@ -210,5 +210,29 @@ app.post('/api/state', async (req, res) => {
   }
 });
 
+// Book search proxy
+app.get('/api/books/search', async (req, res) => {
+  try {
+    const q = req.query.q;
+    if (!q) return res.json([]);
+    const url = 'https://www.googleapis.com/books/v1/volumes?q=' + encodeURIComponent(q) + '&maxResults=6&printType=books';
+    const r = await fetch(url);
+    const data = await r.json();
+    const results = (data.items || []).map(item => {
+      const v = item.volumeInfo;
+      return {
+        id: item.id,
+        title: v.title || 'Unknown',
+        author: v.authors ? v.authors[0] : 'Unknown',
+        pages: v.pageCount || null,
+        cover: (v.imageLinks || {}).smallThumbnail || ''
+      };
+    });
+    res.json(results);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server running on port ' + PORT));

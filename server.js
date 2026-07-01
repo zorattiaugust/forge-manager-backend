@@ -17,11 +17,38 @@ const supabase = createClient(
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+async function getAgentMemory(userId, agent) {
+  if (!userId) return '';
+  const { data } = await supabase.from('user_state').select('data').eq('user_id', userId).single();
+  return (data?.data?.[agent + 'Memory']) || '';
+}
+
+async function updateAgentMemory(userId, agent, userMessage, agentReply, currentMemory) {
+  if (!userId) return;
+  try {
+    const updated = await callClaude({
+      system: `You maintain a compact, always-current memory summary for an AI assistant named ${agent === 'marcus' ? 'Marcus' : 'Rex'}.
+Extract and merge key facts about the user: their projects, preferences, communication style, ongoing goals, decisions made, and personal context.
+Overwrite outdated info with new info. Keep it under 300 words. Plain bullet points. No fluff.`,
+      messages: [{ role: 'user', content: 'Current memory:\n' + (currentMemory || 'none yet') + '\n\nNew exchange:\nUser: ' + userMessage + '\n' + (agent === 'marcus' ? 'Marcus' : 'Rex') + ': ' + agentReply }],
+      maxTokens: 400
+    });
+    const { data } = await supabase.from('user_state').select('data').eq('user_id', userId).single();
+    const existing = data?.data || {};
+    existing[agent + 'Memory'] = updated;
+    await supabase.from('user_state').upsert({ user_id: userId, data: existing, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+  } catch (e) {
+    console.error('memory update failed:', e.message);
+  }
+}
+
 // --- Coach: chat + propose logs ---
 app.post('/api/coach/message', async (req, res) => {
   try {
-    const { message, goalsContext } = req.body;
+    const { message, userId, goalsContext } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
+
+    const rexMemory = await getAgentMemory(userId, 'rex');
 
     const { data: recentLogs } = await supabase
       .from('forge_logs')
@@ -32,11 +59,18 @@ app.post('/api/coach/message', async (req, res) => {
       .map(l => `${l.log_date} [${l.category}]: ${JSON.stringify(l.payload)}`)
       .join('\n');
 
+    const { data: history } = await supabase
+      .from('coach_messages')
+      .select('role, content')
+      .order('created_at', { ascending: true })
+      .limit(40);
+
     await supabase.from('coach_messages').insert({ role: 'user', content: message });
 
-    const result = await runCoach(message, summary, goalsContext);
+    const result = await runCoach(message, summary, goalsContext, history || [], rexMemory);
 
     await supabase.from('coach_messages').insert({ role: 'assistant', content: result.reply });
+    updateAgentMemory(userId, 'rex', message, result.reply, rexMemory);
 
     const pending = [];
     for (const log of result.proposed_logs || []) {
@@ -134,7 +168,7 @@ app.delete('/api/forge/log/:id', async (req, res) => {
 // --- Manager: business idea conversations ---
 app.post('/api/manager/message', async (req, res) => {
   try {
-    const { message, threadId, goalsContext, fileData, fileType, fileName } = req.body;
+    const { message, userId, threadId, goalsContext, fileData, fileType, fileName } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     let tid = threadId;
@@ -150,10 +184,20 @@ app.post('/api/manager/message', async (req, res) => {
 
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'user', content: message });
 
+    const marcusMemory = await getAgentMemory(userId, 'marcus');
+
+    const { data: threadHistory } = await supabase
+      .from('manager_messages')
+      .select('role, content')
+      .eq('thread_id', tid)
+      .order('created_at', { ascending: true })
+      .limit(40);
+
     const file = fileData ? { data: fileData, type: fileType || 'application/pdf', name: fileName || 'attachment' } : null;
-    const result = await runManager(message, file, goalsContext);
+    const result = await runManager(message, file, goalsContext, threadHistory || [], marcusMemory);
 
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'manager', content: result.plan });
+    updateAgentMemory(userId, 'marcus', message, result.plan, marcusMemory);
     for (const r of result.results) {
       await supabase.from('manager_messages').insert({
         thread_id: tid,

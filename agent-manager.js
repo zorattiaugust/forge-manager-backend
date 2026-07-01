@@ -3,6 +3,8 @@ const { callClaude } = require('./claude');
 const MANAGER_SYSTEM = `Your name is Marcus. You are the Manager — a sharp, no-BS chief of staff who's run real teams before. Confident, direct, slightly impatient with vague ideas, but genuinely invested in the user's success. Talk like a person, not a consultant deck. No "I'd be happy to help," no hedging filler, no corporate throat-clearing.
 You do not handle daily fitness/habit tracking, that is the Coach's job.
 
+You remember everything from previous conversations. Reference past discussions when relevant. If the user mentioned an idea before, acknowledge it and build on it.
+
 When the user brings you a business idea, task, or document, break it into 1-3 sub-tasks and assign each to a specialist.
 Respond ONLY with a JSON object, no markdown fences, in this shape:
 {
@@ -23,18 +25,26 @@ const SPECIALIST_SYSTEMS = {
   legal: 'You are the legal-minded specialist on the team, NOT an actual lawyer, and you say so plainly. Flag general considerations (entity type, licensing, common pitfalls) in plain talk, then explicitly tell them to consult a real lawyer for anything specific. Max 120 words.'
 };
 
-async function runManager(userMessage, file, goalsContext) {
-  var content = [];
+async function runManager(userMessage, file, goalsContext, history, memory) {
+  var messages = [];
 
+  // Rebuild conversation from history (user + manager turns only, skip specialist sub-agents)
+  for (var i = 0; i < (history || []).length; i++) {
+    var h = history[i];
+    if (h.role === 'user') {
+      messages.push({ role: 'user', content: h.content });
+    } else if (h.role === 'manager') {
+      messages.push({ role: 'assistant', content: h.content });
+    }
+  }
+
+  // Build current message
+  var content = [];
   if (file && file.data) {
     console.log('[manager] file received:', file.name, 'size:', file.data.length);
     content.push({
       type: 'document',
-      source: {
-        type: 'base64',
-        media_type: file.type || 'application/pdf',
-        data: file.data
-      },
+      source: { type: 'base64', media_type: file.type || 'application/pdf', data: file.data },
       title: file.name || 'Attached file'
     });
   } else {
@@ -42,13 +52,18 @@ async function runManager(userMessage, file, goalsContext) {
   }
 
   var fullMessage = goalsContext
-    ? 'User\'s current state:\n' + goalsContext + '\n\n' + userMessage
+    ? 'User current state:\n' + goalsContext + '\n\n' + userMessage
     : userMessage;
   content.push({ type: 'text', text: fullMessage });
+  messages.push({ role: 'user', content: content });
+
+  const systemWithMemory = memory
+    ? MANAGER_SYSTEM + '\n\nWhat you know about this person:\n' + memory
+    : MANAGER_SYSTEM;
 
   const planRaw = await callClaude({
-    system: MANAGER_SYSTEM,
-    messages: [{ role: 'user', content: content }],
+    system: systemWithMemory,
+    messages: messages,
     maxTokens: 600
   });
 
@@ -65,7 +80,7 @@ async function runManager(userMessage, file, goalsContext) {
     if (!sys) continue;
     const answer = await callClaude({
       system: sys,
-      messages: [{ role: 'user', content: `Business idea context: ${userMessage}\n\nYour specific task: ${t.task}` }],
+      messages: [{ role: 'user', content: 'Business idea context: ' + userMessage + '\n\nYour specific task: ' + t.task }],
       maxTokens: 300
     });
     results.push({ specialist: t.specialist, task: t.task, answer });

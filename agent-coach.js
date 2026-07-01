@@ -70,14 +70,35 @@ function normalizeCoachResult(parsed) {
   return { reply: reply, proposed_logs: proposed_logs };
 }
 
-async function runCoach(userMessage, recentForgeSummary, goalsContext) {
+async function runCoach(userMessage, recentForgeSummary, goalsContext, history, memory) {
   var context = recentForgeSummary || 'none yet';
-  var goals = goalsContext ? '\n\nCurrent goals state:\n' + goalsContext : '';
-  var prompt = 'Recent logged data:\n' + context + goals + '\n\nUser: ' + userMessage + '\n\nReturn only valid JSON. No markdown.';
+  var goals = goalsContext ? '\n\nCurrent state:\n' + goalsContext : '';
+  var systemContext = 'Recent logged data:\n' + context + goals;
+
+  var messages = [];
+
+  // Inject historical context as first system-style user/assistant pair if no history yet
+  if (!history || history.length === 0) {
+    messages.push({ role: 'user', content: systemContext + '\n\nHey.' });
+    messages.push({ role: 'assistant', content: 'Got it. What\'s up?' });
+  } else {
+    // Prepend context to the first user message in history
+    var first = history[0];
+    messages.push({ role: 'user', content: systemContext + '\n\n' + first.content });
+    for (var i = 1; i < history.length; i++) {
+      messages.push({ role: history[i].role === 'user' ? 'user' : 'assistant', content: history[i].content });
+    }
+  }
+
+  messages.push({ role: 'user', content: userMessage + '\n\nReturn only valid JSON. No markdown.' });
+
+  var systemWithMemory = memory
+    ? COACH_SYSTEM + '\n\nWhat you know about this person:\n' + memory
+    : COACH_SYSTEM;
 
   var raw = await callClaude({
-    system: COACH_SYSTEM,
-    messages: [{ role: 'user', content: prompt }],
+    system: systemWithMemory,
+    messages: messages,
     maxTokens: 600
   });
 

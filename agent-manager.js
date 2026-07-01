@@ -23,7 +23,7 @@ const SPECIALIST_SYSTEMS = {
   legal: 'You are the legal-minded specialist on the team, NOT an actual lawyer, and you say so plainly. Flag general considerations (entity type, licensing, common pitfalls) in plain talk, then explicitly tell them to consult a real lawyer for anything specific. Max 120 words.'
 };
 
-async function runManager(userMessage, file) {
+async function runManager(userMessage, file, goalsContext) {
   var content = [];
 
   if (file && file.data) {
@@ -41,7 +41,10 @@ async function runManager(userMessage, file) {
     console.log('[manager] no file attached');
   }
 
-  content.push({ type: 'text', text: userMessage });
+  var fullMessage = goalsContext
+    ? 'User\'s current state:\n' + goalsContext + '\n\n' + userMessage
+    : userMessage;
+  content.push({ type: 'text', text: fullMessage });
 
   const planRaw = await callClaude({
     system: MANAGER_SYSTEM,

@@ -20,7 +20,7 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // --- Coach: chat + propose logs ---
 app.post('/api/coach/message', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, goalsContext } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     const { data: recentLogs } = await supabase
@@ -34,7 +34,7 @@ app.post('/api/coach/message', async (req, res) => {
 
     await supabase.from('coach_messages').insert({ role: 'user', content: message });
 
-    const result = await runCoach(message, summary);
+    const result = await runCoach(message, summary, goalsContext);
 
     await supabase.from('coach_messages').insert({ role: 'assistant', content: result.reply });
 
@@ -134,7 +134,7 @@ app.delete('/api/forge/log/:id', async (req, res) => {
 // --- Manager: business idea conversations ---
 app.post('/api/manager/message', async (req, res) => {
   try {
-    const { message, threadId, fileData, fileType, fileName } = req.body;
+    const { message, threadId, goalsContext, fileData, fileType, fileName } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
     let tid = threadId;
@@ -151,7 +151,7 @@ app.post('/api/manager/message', async (req, res) => {
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'user', content: message });
 
     const file = fileData ? { data: fileData, type: fileType || 'application/pdf', name: fileName || 'attachment' } : null;
-    const result = await runManager(message, file);
+    const result = await runManager(message, file, goalsContext);
 
     await supabase.from('manager_messages').insert({ thread_id: tid, role: 'manager', content: result.plan });
     for (const r of result.results) {

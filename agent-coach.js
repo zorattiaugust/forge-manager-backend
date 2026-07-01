@@ -1,95 +1,93 @@
 const { callClaude } = require('./claude');
 
-const COACH_SYSTEM = `You are Forge's Coach — think tough-love gym coach who actually has your back, not a customer service bot.
-Talk like a real person: direct, a little blunt, occasionally dry or funny, never corporate, never starts with "I'd be happy to" or "Great question." Use casual phrasing, contractions, the occasional short punchy sentence. Call out slacking when you see it ("you skipped legs again, huh") but stay encouraging, not mean. You're in their corner.
+const COACH_SYSTEM = `Your name is Rex. You are Forge's Coach — tough-love gym coach who actually has your back.
+Talk like a real person: direct, blunt, occasionally dry or funny, never corporate. No "I'd be happy to help," no "Great question," no filler. Short punchy sentences. Contractions. Call out slacking when you see it but stay in their corner.
 
-Your only job is helping the user log their day: workouts, exercises, runs, meals, supplements, water, reading, and budget/spending.
-You do not discuss business ideas, that is a different agent's job. If asked about business stuff, say something like "that's Manager's department, not mine" and redirect.
+Your job is logging the user's day: workouts, exercises, runs, meals, supplements, water, reading, and budget.
+You do not handle business ideas — that is the Manager's job. If asked, redirect them.
 
-When the user describes something that should be logged (a workout, a meal, a run, water, supplements taken, pages read, money spent),
-respond ONLY with a JSON object, nothing else, no markdown fences, in this exact shape:
-{
-  "reply": "a short reply in your voice, confirming what you understood and asking them to confirm",
-  "proposed_logs": [
-    { "category": "workout" | "exercise" | "run" | "meal" | "supplement" | "water" | "reading" | "budget",
-      "payload": { ...whatever fields make sense for that category... } }
-  ]
-}
+LOGGING RULES — read these carefully:
+1. When the user mentions multiple things in one message, log ALL of them in one response. Do not ask follow-up questions for simple items. Ice cream + water = two entries in proposed_logs, done.
+2. For meals, capture what they said in the text field. Do not ask about macros or exact weights. If they say "ice cream" just log { "text": "ice cream" }. Only ask a follow-up if the meal is completely vague like "ate something."
+3. Water is always just cups: { "cups": 1 } per cup mentioned or implied.
+4. Never split one message into multiple back-and-forths. One message = one JSON reply with everything logged.
+5. The only time to ask a follow-up is when you genuinely cannot guess the category or amount.
 
-If there is nothing to log (they're just chatting, asking a question, or asking for feedback), respond with:
-{ "reply": "your normal conversational answer, in your voice", "proposed_logs": [] }
+When the user describes something to log, respond ONLY with a JSON object, no markdown, no extra text:
+{ "reply": "short reply in your voice confirming what you got", "proposed_logs": [ { "category": "workout|exercise|run|meal|supplement|water|reading|budget", "payload": {} } ] }
 
-Examples of payload shape:
-- exercise: { "name": "bench press", "weight": 135, "reps": 10, "sets": 4 }
-- run: { "dist": 2, "mins": 18 }
-- meal: { "text": "chicken bowl with rice" }
-- supplement: { "name": "creatine" }
-- water: { "cups": 1 }
-- reading: { "pages": 20 }
-- budget: { "amount": 12.50, "note": "lunch" }
+If nothing to log:
+{ "reply": "your conversational answer", "proposed_logs": [] }
 
-Never invent data the user didn't mention. Keep replies short, 1-3 sentences max unless they're asking for real feedback on their week.`;
+Payload shapes:
+exercise: { "name": "bench press", "weight": 135, "reps": 10, "sets": 4 }
+run: { "dist": 2, "mins": 18 }
+meal: { "text": "ice cream" }
+supplement: { "name": "creatine" }
+water: { "cups": 1 }
+reading: { "pages": 20 }
+budget: { "amount": 12.50, "note": "lunch" }
+workout: { "split": "chest_tri" }
+
+Never invent data the user did not mention. Keep replies 1 to 2 sentences max.`;
 
 function extractJsonObject(text) {
   if (!text) throw new Error('Empty model response');
-  let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  var cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
     return JSON.parse(cleaned);
-  } catch (_) {
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error('No JSON object found in model response');
-    }
-    return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+  } catch (e) {
+    var first = cleaned.indexOf('{');
+    var last = cleaned.lastIndexOf('}');
+    if (first === -1 || last === -1 || last <= first) throw new Error('No JSON found');
+    return JSON.parse(cleaned.slice(first, last + 1));
   }
 }
 
-const VALID_CATEGORIES = new Set([
+var VALID_CATEGORIES = new Set([
   'workout', 'exercise', 'run', 'meal', 'supplement', 'water', 'reading', 'budget'
 ]);
 
 function normalizeCoachResult(parsed) {
-  const reply =
-    typeof parsed.reply === 'string' && parsed.reply.trim()
-      ? parsed.reply.trim()
-      : 'I understood that, but the log format came back messy. Try saying it a little more directly.';
+  var reply = (typeof parsed.reply === 'string' && parsed.reply.trim())
+    ? parsed.reply.trim()
+    : 'Got it. Try again if that did not look right.';
 
-  const proposed_logs = Array.isArray(parsed.proposed_logs)
+  var proposed_logs = Array.isArray(parsed.proposed_logs)
     ? parsed.proposed_logs
-        .filter(log =>
-          log &&
-          VALID_CATEGORIES.has(log.category) &&
-          log.payload &&
-          typeof log.payload === 'object' &&
-          !Array.isArray(log.payload)
-        )
-        .map(log => ({ category: log.category, payload: log.payload }))
+        .filter(function(log) {
+          return log &&
+            VALID_CATEGORIES.has(log.category) &&
+            log.payload &&
+            typeof log.payload === 'object' &&
+            !Array.isArray(log.payload);
+        })
+        .map(function(log) {
+          return { category: log.category, payload: log.payload };
+        })
     : [];
 
-  return { reply, proposed_logs };
+  return { reply: reply, proposed_logs: proposed_logs };
 }
 
-async function runCoach(userMessage, recentForgeSummary) {
-  const messages = [
-    {
-      role: 'user',
-      content:
-        `Recent logged data for context:\n${recentForgeSummary || 'none yet'}\n\n` +
-        `User says: ${userMessage}\n\n` +
-        `Return only valid JSON. No markdown. No explanation outside the JSON object.`
-    }
-  ];
+async function runCoach(userMessage, recentForgeSummary, goalsContext) {
+  var context = recentForgeSummary || 'none yet';
+  var goals = goalsContext ? '\n\nCurrent goals state:\n' + goalsContext : '';
+  var prompt = 'Recent logged data:\n' + context + goals + '\n\nUser: ' + userMessage + '\n\nReturn only valid JSON. No markdown.';
 
-  const raw = await callClaude({ system: COACH_SYSTEM, messages, maxTokens: 500 });
+  var raw = await callClaude({
+    system: COACH_SYSTEM,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 600
+  });
 
   try {
-    const parsed = extractJsonObject(raw);
+    var parsed = extractJsonObject(raw);
     return normalizeCoachResult(parsed);
   } catch (e) {
-    console.error('Coach JSON parse failed:', { error: e.message, raw });
+    console.error('Coach parse failed:', e.message, raw);
     return {
-      reply: 'I heard you, but I could not turn that into a clean log. Say it like: "I ate chicken and rice" or "bench 135 for 3 sets of 10."',
+      reply: 'Could not parse that. Try again.',
       proposed_logs: []
     };
   }

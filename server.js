@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const { runCoach } = require('./agent-coach');
 const { runManager } = require('./agent-manager');
@@ -9,6 +10,9 @@ const { callClaude } = require('./claude');
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// memoryStorage only — audio must never touch disk (privacy requirement)
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -340,6 +344,30 @@ app.get('/api/books/search', async (req, res) => {
   } catch (e) {
     console.error('book search error:', e.message);
     res.json([]);
+  }
+});
+
+app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) return res.json({ text: '', error: 'No audio received' });
+    const form = new FormData();
+    form.append('model_id', 'scribe_v1');
+    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' }), 'audio.webm');
+    const r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+      method: 'POST',
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+      body: form
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      console.error('transcribe error:', r.status, errBody);
+      return res.json({ text: '', error: 'Transcription failed' });
+    }
+    const data = await r.json();
+    res.json({ text: data.text || '' });
+  } catch (e) {
+    console.error('transcribe error:', e.message);
+    res.json({ text: '', error: 'Transcription failed' });
   }
 });
 

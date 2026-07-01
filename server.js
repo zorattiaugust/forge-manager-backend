@@ -347,7 +347,15 @@ app.get('/api/books/search', async (req, res) => {
   }
 });
 
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/transcribe', (req, res, next) => {
+  upload.single('audio')(req, res, (err) => {
+    if (err) {
+      console.error('transcribe upload error:', err.message);
+      return res.json({ text: '', error: 'Upload failed' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     if (!req.file) return res.json({ text: '', error: 'No audio received' });
     const form = new FormData();

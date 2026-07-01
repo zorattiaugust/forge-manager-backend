@@ -210,6 +210,32 @@ app.post('/api/state', async (req, res) => {
   }
 });
 
+// Recommendations
+app.post('/api/recommendations', async (req, res) => {
+  try {
+    const { context } = req.body;
+    const system = `You are Forge, a personal performance app. Based on the user's current data, give 4 short personalized recommendations covering: their reading, health habits, workouts, and one general life/mindset tip. Be direct, specific, and motivating. Not generic.
+
+Respond ONLY with a JSON array, no markdown:
+[
+  { "label": "Reading", "text": "recommendation here" },
+  { "label": "Health", "text": "recommendation here" },
+  { "label": "Training", "text": "recommendation here" },
+  { "label": "Mindset", "text": "recommendation here" }
+]`;
+    const raw = await callClaude({
+      system,
+      messages: [{ role: 'user', content: 'My current data:\n' + context }],
+      maxTokens: 600
+    });
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const recommendations = JSON.parse(cleaned.slice(cleaned.indexOf('['), cleaned.lastIndexOf(']') + 1));
+    res.json({ recommendations });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Book search proxy (Open Library)
 app.get('/api/books/search', async (req, res) => {
   try {

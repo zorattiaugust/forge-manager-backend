@@ -210,26 +210,24 @@ app.post('/api/state', async (req, res) => {
   }
 });
 
-// Book search proxy
+// Book search proxy (Open Library)
 app.get('/api/books/search', async (req, res) => {
   try {
     const q = req.query.q;
     if (!q) return res.json([]);
-    const url = 'https://www.googleapis.com/books/v1/volumes?q=' + encodeURIComponent(q) + '&maxResults=6&printType=books';
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const url = 'https://openlibrary.org/search.json?q=' + encodeURIComponent(q) + '&limit=6&fields=key,title,author_name,number_of_pages_median,cover_i';
+    const r = await fetch(url, { headers: { 'User-Agent': 'ForgeApp/1.0' } });
     const data = await r.json();
-    const results = (data.items || []).map(item => {
-      const v = item.volumeInfo;
-      return {
-        id: item.id,
-        title: v.title || 'Unknown',
-        author: v.authors ? v.authors[0] : 'Unknown',
-        pages: v.pageCount || null,
-        cover: (v.imageLinks || {}).smallThumbnail || ''
-      };
-    });
+    const results = (data.docs || []).map(doc => ({
+      id: doc.key || doc.title,
+      title: doc.title || 'Unknown',
+      author: doc.author_name ? doc.author_name[0] : 'Unknown',
+      pages: doc.number_of_pages_median || null,
+      cover: doc.cover_i ? 'https://covers.openlibrary.org/b/id/' + doc.cover_i + '-S.jpg' : ''
+    }));
     res.json(results);
   } catch (e) {
+    console.error('book search error:', e.message);
     res.json([]);
   }
 });

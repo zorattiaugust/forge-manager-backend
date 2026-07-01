@@ -379,5 +379,35 @@ app.post('/api/transcribe', (req, res, next) => {
   }
 });
 
+app.post('/api/speak', async (req, res) => {
+  try {
+    const { text, agent } = req.body;
+    if (!text || !agent) return res.status(400).json({ error: 'text and agent required' });
+    const voiceId = agent === 'rex' ? process.env.ELEVENLABS_VOICE_REX
+      : agent === 'marcus' ? process.env.ELEVENLABS_VOICE_MARCUS
+      : null;
+    if (!voiceId) return res.status(400).json({ error: 'Unknown agent' });
+    const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + voiceId, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': process.env.ELEVENLABS_API_KEY,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ text, model_id: 'eleven_turbo_v2_5' })
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      console.error('speak error:', r.status, errBody);
+      return res.status(502).json({ error: 'Speech generation failed' });
+    }
+    const audioBuffer = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'audio/mpeg');
+    res.send(audioBuffer);
+  } catch (e) {
+    console.error('speak error:', e.message);
+    res.status(500).json({ error: 'Speech generation failed' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server running on port ' + PORT));

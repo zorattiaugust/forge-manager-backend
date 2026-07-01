@@ -4,6 +4,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { runCoach } = require('./agent-coach');
 const { runManager } = require('./agent-manager');
+const { callClaude } = require('./claude');
 
 const app = express();
 app.use(cors());

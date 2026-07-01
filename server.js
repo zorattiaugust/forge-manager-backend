@@ -281,20 +281,40 @@ Respond ONLY with a JSON array, no markdown:
   }
 });
 
-// Exercise search proxy (wger)
+// Exercise search (wger). wger removed its autocomplete/search endpoint and its
+// list endpoints ignore query filters entirely, so we cache the full catalog
+// (~859 exercises) and filter it ourselves.
+let exerciseCache = { list: [], fetchedAt: 0 };
+const EXERCISE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function loadExerciseCache() {
+  const now = Date.now();
+  if (exerciseCache.list.length && now - exerciseCache.fetchedAt < EXERCISE_CACHE_TTL_MS) {
+    return exerciseCache.list;
+  }
+  const url = 'https://wger.de/api/v2/exerciseinfo/?limit=900&language=2';
+  const r = await fetch(url, { headers: { 'User-Agent': 'ForgeApp/1.0' } });
+  const data = await r.json();
+  const list = (data.results || []).map(ex => {
+    const translation = (ex.translations || []).find(t => t.language === 2) || ex.translations?.[0];
+    if (!translation) return null;
+    return {
+      id: ex.id,
+      name: translation.name,
+      category: ex.category?.name || '',
+      muscles: (ex.muscles || []).map(m => m.name_en || m.name).filter(Boolean)
+    };
+  }).filter(Boolean);
+  exerciseCache = { list, fetchedAt: now };
+  return list;
+}
+
 app.get('/api/exercises/search', async (req, res) => {
   try {
-    const q = req.query.q;
+    const q = (req.query.q || '').toLowerCase();
     if (!q || q.length < 2) return res.json([]);
-    const url = 'https://wger.de/api/v2/exercise/search/?term=' + encodeURIComponent(q) + '&language=english&format=json';
-    const r = await fetch(url, { headers: { 'User-Agent': 'ForgeApp/1.0' } });
-    const data = await r.json();
-    const results = (data.suggestions || []).map(s => ({
-      id: s.data?.id || s.value,
-      name: s.value,
-      category: s.data?.category?.name || '',
-      muscles: (s.data?.muscles || []).map(m => m.name_en).filter(Boolean)
-    }));
+    const list = await loadExerciseCache();
+    const results = list.filter(ex => ex.name.toLowerCase().includes(q)).slice(0, 20);
     res.json(results);
   } catch(e) {
     res.json([]);

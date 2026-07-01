@@ -216,7 +216,7 @@ app.get('/api/books/search', async (req, res) => {
     const q = req.query.q;
     if (!q) return res.json([]);
     const url = 'https://www.googleapis.com/books/v1/volumes?q=' + encodeURIComponent(q) + '&maxResults=6&printType=books';
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const data = await r.json();
     const results = (data.items || []).map(item => {
       const v = item.volumeInfo;

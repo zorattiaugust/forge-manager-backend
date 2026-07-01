@@ -281,6 +281,26 @@ Respond ONLY with a JSON array, no markdown:
   }
 });
 
+// Exercise search proxy (wger)
+app.get('/api/exercises/search', async (req, res) => {
+  try {
+    const q = req.query.q;
+    if (!q || q.length < 2) return res.json([]);
+    const url = 'https://wger.de/api/v2/exercise/search/?term=' + encodeURIComponent(q) + '&language=english&format=json';
+    const r = await fetch(url, { headers: { 'User-Agent': 'ForgeApp/1.0' } });
+    const data = await r.json();
+    const results = (data.suggestions || []).map(s => ({
+      id: s.data?.id || s.value,
+      name: s.value,
+      category: s.data?.category?.name || '',
+      muscles: (s.data?.muscles || []).map(m => m.name_en).filter(Boolean)
+    }));
+    res.json(results);
+  } catch(e) {
+    res.json([]);
+  }
+});
+
 // Book search proxy (Open Library)
 app.get('/api/books/search', async (req, res) => {
   try {
